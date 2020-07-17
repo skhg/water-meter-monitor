@@ -13,15 +13,15 @@
  * Cold water sensor - reflectance threshold values
  */
 #define COLD_ACTIVE true
-#define COLD_THRESHOLD_HIGH 951
-#define COLD_THRESHOLD_LOW 789
+#define COLD_THRESHOLD_HIGH 970
+#define COLD_THRESHOLD_LOW 808
 
 /**
  * Hot water sensor - reflectance threshold values
  */
 #define HOT_ACTIVE true
-#define HOT_THRESHOLD_HIGH 53
-#define HOT_THRESHOLD_LOW 42
+#define HOT_THRESHOLD_HIGH 54
+#define HOT_THRESHOLD_LOW 41
 
 /**
  * Quantity of water represented by one-half rotation of the meter's wheel
@@ -31,7 +31,8 @@
 /**
  * Enable/disable Serial output to aid in calibration of the reflectivity sensors
  */
-#define CALIBRATION 1
+#define CALIBRATION 0
+#define PLOTTER 0
 
 /**
  * IP Address and port to send data to
@@ -140,6 +141,11 @@ METER_STATE coldState;
 METER_STATE hotState_nvram;
 METER_STATE hotState;
 
+int _calibrationColdMin = 1024;
+int _calibrationHotMin = 1024;
+int _calibrationColdMax = 0;
+int _calibrationHotMax = 0;
+
 void setup() {
   Serial.begin(9600);
   EEPROM.begin(512);
@@ -182,6 +188,10 @@ void setup() {
   digitalWrite(PIN_MULTIPLEXER_S1, LOW);
   digitalWrite(PIN_MULTIPLEXER_S2, LOW);
   digitalWrite(PIN_MULTIPLEXER_S3, LOW);
+
+  if(PLOTTER) {
+    Serial.println("Cold, Hot");
+  }
 }
 
 void loop() {
@@ -190,8 +200,15 @@ void loop() {
   bool coldFlow = COLD_ACTIVE && coldMoved();
   bool hotFlow = HOT_ACTIVE && hotMoved();
 
-  if(CALIBRATION) {
+  if(PLOTTER) {
     Serial.println();
+    return;
+  }
+  
+  if(CALIBRATION) {
+    calibrationHelper();
+    Serial.println("---");
+    return;
   }
   
   double hotLitres = 0.0;
@@ -230,6 +247,28 @@ void loop() {
     delay(LOOP_DELAY_MS);
 }
 
+void calibrationHelper(){
+  Serial.println("Cold: Range " + String(_calibrationColdMin) + " to " + String(_calibrationColdMax));
+  Serial.println("Hot: Range " + String(_calibrationHotMin) + " to " + String(_calibrationHotMax));
+
+  int lowTrigger;
+  int highTrigger;
+  Serial.println("Reccomended trigger levels (20% above and below max/min)");
+
+  calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger, &highTrigger);
+  Serial.println("Cold: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+
+  calculateThresholds(_calibrationHotMin, _calibrationHotMax, &lowTrigger, &highTrigger);
+  Serial.println("Hot: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+}
+
+void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger){
+  int range = high - low;
+
+  int rangeBuffer = range * 0.2;
+  *lowTrigger = low + rangeBuffer;
+  *highTrigger = high - rangeBuffer;
+}
 
 void reboot(){
   if(hotState != hotState_nvram){
@@ -271,7 +310,13 @@ bool coldMoved(){
   digitalWrite(PIN_MULTIPLEXER_S0, LOW);
   digitalWrite(PIN_MULTIPLEXER_S1, LOW);
 
-  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH, COLD_THRESHOLD_LOW);
+  int readingValue;
+  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH, COLD_THRESHOLD_LOW, &readingValue);
+
+  if(CALIBRATION){
+    _calibrationColdMin = min(_calibrationColdMin, readingValue);
+    _calibrationColdMax = max(_calibrationColdMax, readingValue);
+  }
   
   if(newState != coldState){
     coldState = newState;
@@ -284,8 +329,14 @@ bool coldMoved(){
 bool hotMoved(){
   digitalWrite(PIN_MULTIPLEXER_S0, LOW);
   digitalWrite(PIN_MULTIPLEXER_S1, HIGH);
+  
+  int readingValue;
+  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH, HOT_THRESHOLD_LOW, &readingValue);
 
-  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH, HOT_THRESHOLD_LOW);
+  if(CALIBRATION){
+    _calibrationHotMin = min(_calibrationHotMin, readingValue);
+    _calibrationHotMax = max(_calibrationHotMax, readingValue);
+  }
   
   if(newState != hotState){
     hotState = newState;
@@ -295,17 +346,17 @@ bool hotMoved(){
   return false;
 }
 
-METER_STATE takeReading(METER_STATE currentState, int highThreshold, int lowThreshold){
-  int reading = analogRead(PIN_ANALOG_IN);
+METER_STATE takeReading(METER_STATE currentState, int highThreshold, int lowThreshold, int*reading){
+  *reading = analogRead(PIN_ANALOG_IN);
 
-  if(CALIBRATION) {
-    Serial.print(reading);
+  if(PLOTTER) {
+    Serial.print(*reading);
     Serial.print(",");
   }
   
-  if(currentState == REFLECT_HIGH && reading < lowThreshold){
+  if(currentState == REFLECT_HIGH && *reading < lowThreshold){
     return REFLECT_LOW;
-  }else if(currentState == REFLECT_LOW && reading >  highThreshold){
+  }else if(currentState == REFLECT_LOW && *reading >  highThreshold){
     return REFLECT_HIGH;
   }
 
