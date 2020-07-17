@@ -1,11 +1,11 @@
 # water-meter-monitor
 This is a project to measure my household water consumption in real-time using Arduino. The project also evolved a little bit to record the bathroom environment (temperature, humidity, etc).
 
-This repo covers only the design and construction of the monitor. To record data, the [data logger](https://github.com/skhg/water-meter-logger) project also needs to be run on the same LAN.
+This repo covers only the design and construction of the monitor. To record data, the [data logger](https://github.com/skhg/household-data-logger) project also needs to be run on the same LAN.
 
 ## The finished product
 ![dashboard](docs/grafana.png)
-A dashboard set up to display the data using [Grafana](https://grafana.com/). Again, see the [data logger](https://github.com/skhg/water-meter-logger) project for how this is set up.
+A dashboard set up to display the data using [Grafana](https://grafana.com/). Again, see the [data logger](https://github.com/skhg/household-data-logger) project for how this is set up.
 
 ![installed hardware](docs/open_box_mounted.jpeg)
 The installed sensors and Arduino board. Please excuse the dirt and corroded pipes.
