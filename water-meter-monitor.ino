@@ -44,6 +44,12 @@
 #define IP_PORT 8080
 
 /**
+ * Network hostname for the system
+ */
+
+const String HOST_NAME = "bathroom";
+
+/**
  * No need to make further changes below here
  */
 
@@ -298,6 +304,7 @@ void connectToWifi(){
   Serial.print("Connecting to ");
   Serial.println(WIFI_SSID); 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.hostname(HOST_NAME);
   while (WiFi.status() != WL_CONNECTED) {
     reboot();
   }
