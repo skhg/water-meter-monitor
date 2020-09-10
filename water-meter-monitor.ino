@@ -303,8 +303,8 @@ void connectToWifi(){
   
   Serial.print("Connecting to ");
   Serial.println(WIFI_SSID); 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.hostname(HOST_NAME);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     reboot();
   }
