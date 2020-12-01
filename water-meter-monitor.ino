@@ -27,6 +27,11 @@
 #define HOT_THRESHOLD_LOW 41
 
 /**
+ * When no water is flowing, how often do we report the "weather conditions" in the bathroom
+ */
+#define REPORT_INTERVAL_SECONDS 10
+
+/**
  * Quantity of water represented by one-half rotation of the meter's wheel
  */
 #define FLOW_DETECTION_LITRES 0.5
@@ -34,27 +39,25 @@
 /**
  * Enable/disable Serial output to aid in calibration of the reflectivity sensors
  */
-#define CALIBRATION 0
-#define PLOTTER 0
+enum RUN_MODES {
+  CALIBRATION,
+  PLOTTER,
+  MONITORING
+};
+
+#define ACTIVE_RUN_MODE MONITORING
 
 /**
  * IP Address and port to send data to
  */
-#define IP_1 192
-#define IP_2 168
-#define IP_3 178
-#define IP_4 29
-#define IP_PORT 8080
+#define SERVER_ADDRESS "http://192.168.178.20:8080"
+#define URL_PATH "/data/live"
 
 /**
  * Network hostname for the system
  */
 
-const String HOST_NAME = "bathroom";
-
-/**
- * No need to make further changes below here
- */
+const String HOSTNAME = "bathroom";
 
 
 
@@ -75,16 +78,6 @@ const String HOST_NAME = "bathroom";
  * Short wait on startup to try to prevent the BMP180 sensor for returning bad data
  */
 #define STARTUP_DELAY_MS 5000
-
-/**
- * Delay between taking readings
- */
-#define LOOP_DELAY_MS 500
-
-/**
- * Delay before reboot
- */
-#define REBOOT_DELAY_MS 1000
 
 /*
   NodeMCU v3 Arduino/Physical pinout map
@@ -116,13 +109,22 @@ const String HOST_NAME = "bathroom";
 #define PIN_DHT_SENSOR 12
 #define DHT_SENSOR_TYPE DHT22
 
-#include<ESP8266WiFi.h>
-#include<home_wifi.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <home_wifi.h>
 #include <DHT.h>
 #include <Wire.h>
 #include <Adafruit_BMP085.h>
 #include <EEPROM.h>
+#include <ArduinoJson.h>
 
+/**
+ * String default values
+ */
+#define EMPTY_STRING ""
+#define HTTP_CONTENT_TYPE_HEADER "Content-Type"
+#define HTTP_CONTENT_LENGTH_HEADER "Content-Length"
+#define HTTP_JSON_CONTENT_TYPE "application/json"
 
 /**
  * Configuration for saving sensor states to NVRAM
@@ -134,57 +136,48 @@ const String HOST_NAME = "bathroom";
 /**
  * Application starts here
  */
-DHT dht(PIN_DHT_SENSOR, DHT_SENSOR_TYPE);
-Adafruit_BMP085 bmp;
-WiFiClient client;
+DHT _dht(PIN_DHT_SENSOR, DHT_SENSOR_TYPE);
+Adafruit_BMP085 _bmp;
+WiFiClient WIFI_CLIENT;
+HTTPClient HTTP_CLIENT;
 
 enum METER_STATE {
   REFLECT_HIGH,
   REFLECT_LOW
 };
 
-IPAddress server(IP_1, IP_2, IP_3, IP_4);
-
-METER_STATE coldState_nvram;
-METER_STATE coldState;
-METER_STATE hotState_nvram;
-METER_STATE hotState;
+METER_STATE _coldState;
+METER_STATE _hotState;
 
 int _calibrationColdMin = 1024;
 int _calibrationHotMin = 1024;
 int _calibrationColdMax = 0;
 int _calibrationHotMax = 0;
 
+uint64_t _lastReportMillis = 0;
+
+double _hotLitres = 0.0;
+double _coldLitres = 0.0;
+
 void setup() {
-  Serial.begin(9600);
-  EEPROM.begin(512);
+  Serial.begin(115200);
 
-  int coldStored = EEPROM.read(COLD_STATE_LOC);
-  int hotStored = EEPROM.read(HOT_STATE_LOC);
-
-  if (coldStored > 1) {
-    coldStored = 0;
-    EEPROM.write(COLD_STATE_LOC, 0);
-    EEPROM.commit();
-  }
-
-  if (hotStored > 1) {
-    hotStored = 0;
-    EEPROM.write(HOT_STATE_LOC, 0);
-    EEPROM.commit();
-  }
-
-  coldState = METER_STATE(coldStored);
-  coldState_nvram = METER_STATE(coldStored);
-  hotState = METER_STATE(hotStored);
-  hotState_nvram = METER_STATE(hotStored);
-
-  Serial.println("Cold state: "+ String(coldStored));
-  Serial.println("Hot state: "+ String(hotStored));
+  Serial.println(EMPTY_STRING);
+  Serial.println("Booting...");
 
   delay(STARTUP_DELAY_MS);
-  dht.begin();
-  bmp.begin();
+
+  if (ACTIVE_RUN_MODE == MONITORING) {
+    connectToWifi();
+    readSavedState(&_coldState, &_hotState);
+
+    Serial.println("Starting sensors...");
+
+    _dht.begin();
+    _bmp.begin();
+  }
+
+  Serial.println("Configuring pins...");
 
   pinMode(PIN_ANALOG_IN, INPUT);
 
@@ -198,66 +191,148 @@ void setup() {
   digitalWrite(PIN_MULTIPLEXER_S2, LOW);
   digitalWrite(PIN_MULTIPLEXER_S3, LOW);
 
-  if (PLOTTER) {
+  if (ACTIVE_RUN_MODE == PLOTTER) {
     Serial.println("Cold, Hot");
   }
 }
 
 void loop() {
-  connectToWifi();
-
   bool coldFlow = COLD_ACTIVE && coldMoved();
   bool hotFlow = HOT_ACTIVE && hotMoved();
 
-  if (PLOTTER) {
+  if (ACTIVE_RUN_MODE == PLOTTER) {
     Serial.println();
     return;
   }
 
-  if (CALIBRATION) {
+  if (ACTIVE_RUN_MODE == CALIBRATION) {
     calibrationHelper();
     Serial.println("---");
     return;
   }
 
-  double hotLitres = 0.0;
-  double coldLitres = 0.0;
-
   if (hotFlow) {
-    hotLitres = FLOW_DETECTION_LITRES;
+    Serial.print("Hot meter is now ");
+    Serial.println(meterStateToString(_hotState));
+
+    EEPROM.write(HOT_STATE_LOC, static_cast<int>(_hotState));
+
+    _hotLitres = _hotLitres + FLOW_DETECTION_LITRES;
   }
 
   if (coldFlow) {
-    coldLitres = FLOW_DETECTION_LITRES;
+    Serial.print("Cold meter is now ");
+    Serial.println(meterStateToString(_coldState));
+
+    EEPROM.write(COLD_STATE_LOC, static_cast<int>(_coldState));
+
+    _coldLitres = _coldLitres + FLOW_DETECTION_LITRES;
   }
 
-  float humidity_percentage = dht.readHumidity();
-  float dht_temperature_c = dht.readTemperature();
-  float bmp_temperature_c = bmp.readTemperature();
-  float pressure_pa = bmp.readPressure();
+  EEPROM.commit();
 
-  String json = "{\"waterFlow\":{\"hotLitres\":" + String(hotLitres) +
-    ",\"coldLitres\":" + String(coldLitres) +
-    "},\"environment\":{\"humidityPercentage\":" + humidity_percentage +
-    ",\"airPressurePa\":" + pressure_pa + ",\"temperatureInternalC\":" +
-    bmp_temperature_c + ",\"temperatureExternalC\":" + dht_temperature_c + "}}";
+  float humidity_percentage = _dht.readHumidity();
+  float dht_temperature_c = _dht.readTemperature();
+  float bmp_temperature_c = _bmp.readTemperature();
+  float pressure_pa = _bmp.readPressure();
 
-  if (client.connect(server, IP_PORT)) {
-      // Make a HTTP request:
-      client.println("POST /data/live HTTP/1.0");
-      client.println("Content-Type: application/json");
-      client.print("Content-Length: ");
-      client.println(json.length());
-      client.println();
-      client.println(json);
-      client.println();
-      client.stop();
-    } else {
-      Serial.println("ERROR: Failed to connect");
-      reboot();
+  String json = sensorValuesToJsonString(_hotLitres, _coldLitres, humidity_percentage, pressure_pa, bmp_temperature_c, dht_temperature_c);
+
+  if (hotFlow || coldFlow || timeForReport(_lastReportMillis)) {
+    _lastReportMillis = millis();
+    
+    if (sendReadings(json)) {
+      // Reset the accumulated litres if we sent them
+      _coldLitres = 0.0;
+      _hotLitres = 0.0;
     }
+  }
+}
 
-    delay(LOOP_DELAY_MS);
+void readSavedState(METER_STATE*coldState, METER_STATE*hotState) {
+  EEPROM.begin(512);
+
+  Serial.println("Loading saved state from NVRAM...");
+
+  int coldStored = EEPROM.read(COLD_STATE_LOC);
+  int hotStored = EEPROM.read(HOT_STATE_LOC);
+
+  /** 
+   * On first boot with a new board, EEPROM values will be randomised 
+   * This resets it to a known safe value
+   */
+  if (coldStored > 1) {
+    coldStored = 0;
+    EEPROM.write(COLD_STATE_LOC, 0);
+  }
+
+  /**
+   * Same as above
+   */
+  if (hotStored > 1) {
+    hotStored = 0;
+    EEPROM.write(HOT_STATE_LOC, 0);
+  }
+
+  EEPROM.commit();
+
+  *coldState = METER_STATE(coldStored);
+  *hotState = METER_STATE(hotStored);
+
+  Serial.println("Saved state:");
+  Serial.println("Cold: "+ meterStateToString(*coldState));
+  Serial.println("Hot: "+ meterStateToString(*hotState));
+}
+
+bool timeForReport(uint64_t lastReportMillis) {
+  return (millis() - lastReportMillis) > (REPORT_INTERVAL_SECONDS * 1000);
+}
+
+String meterStateToString(METER_STATE state) {
+  switch (state) {
+    case REFLECT_HIGH: return "SHINY";
+    case REFLECT_LOW: return "DARK";
+    default: return "Unknown";
+  }
+}
+
+boolean sendReadings(String jsonString) {
+  HTTP_CLIENT.begin(WIFI_CLIENT, String(SERVER_ADDRESS) + String(URL_PATH));
+
+  HTTP_CLIENT.addHeader(HTTP_CONTENT_TYPE_HEADER, HTTP_JSON_CONTENT_TYPE);
+  HTTP_CLIENT.addHeader(HTTP_CONTENT_LENGTH_HEADER, String(jsonString.length()));
+  int result = HTTP_CLIENT.POST(jsonString);
+
+  if (200 <= result && result < 300) {
+    Serial.print("Succeeded with response code: ");
+    Serial.println(result);
+    return true;
+  } else {
+    Serial.print("Failed with response code: ");
+    Serial.println(result);
+    return false;
+  }
+}
+
+String sensorValuesToJsonString(double hotLitres, double coldLitres, float humidityPercentage, float pressurePa, float internalTemp, float externalTemp) {
+  String content;
+
+  const size_t capacity = 2*JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4);
+  DynamicJsonDocument doc(capacity);
+
+  JsonObject waterFlow = doc.createNestedObject("waterFlow");
+  waterFlow["hotLitres"] = hotLitres;
+  waterFlow["coldLitres"] = coldLitres;
+
+  JsonObject environment = doc.createNestedObject("environment");
+  environment["humidityPercentage"] = humidityPercentage;
+  environment["airPressurePa"] = pressurePa;
+  environment["temperatureInternalC"] = internalTemp;
+  environment["temperatureExternalC"] = externalTemp;
+
+  serializeJson(doc, content);
+
+  return content;
 }
 
 void calibrationHelper() {
@@ -289,41 +364,22 @@ void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger) {
   *highTrigger = high - rangeBuffer;
 }
 
-void reboot() {
-  if (hotState != hotState_nvram) {
-    EEPROM.write(HOT_STATE_LOC, static_cast<int>(hotState));
-    Serial.println("Storing hot state: " + String(static_cast<int>(hotState)));
-    Serial.println("Stored hot state: " + String(EEPROM.read(HOT_STATE_LOC)));
-  }
-
-  if (coldState != coldState_nvram) {
-    EEPROM.write(COLD_STATE_LOC, static_cast<int>(coldState));
-    Serial.println("Storing cold state: " +
-      String(static_cast<int>(coldState)));
-    Serial.println("Stored cold state: " + String(EEPROM.read(COLD_STATE_LOC)));
-  }
-  EEPROM.commit();
-
-  delay(REBOOT_DELAY_MS);
-  Serial.println("Rebooting...");
-  ESP.restart();
-}
-
 void connectToWifi() {
-  if (WiFi.status() == WL_CONNECTED) {
-    return;
-  }
+  Serial.println("Connecting to WiFi...");
 
-  Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
-  WiFi.hostname(HOST_NAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.hostname(HOSTNAME);
+
   while (WiFi.status() != WL_CONNECTED) {
-    reboot();
+    delay(500);
+    Serial.print(".");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
+  Serial.println(EMPTY_STRING);
+  Serial.print("Connected to ");
+  Serial.print(WIFI_SSID);
+  Serial.print(" with IP address ");
+  Serial.println(WiFi.localIP());
 }
 
 bool coldMoved() {
@@ -331,16 +387,21 @@ bool coldMoved() {
   digitalWrite(PIN_MULTIPLEXER_S1, LOW);
 
   int readingValue;
-  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH,
+  METER_STATE newState = readMeterState(_coldState, COLD_THRESHOLD_HIGH,
     COLD_THRESHOLD_LOW, &readingValue);
 
-  if (CALIBRATION) {
+  if (ACTIVE_RUN_MODE == CALIBRATION) {
     _calibrationColdMin = min(_calibrationColdMin, readingValue);
     _calibrationColdMax = max(_calibrationColdMax, readingValue);
   }
 
-  if (newState != coldState) {
-    coldState = newState;
+  if (ACTIVE_RUN_MODE == PLOTTER) {
+    Serial.print(readingValue);
+    Serial.print(",");
+  }
+
+  if (newState != _coldState) {
+    _coldState = newState;
     return true;
   }
 
@@ -352,30 +413,33 @@ bool hotMoved() {
   digitalWrite(PIN_MULTIPLEXER_S1, HIGH);
 
   int readingValue;
-  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH,
+  METER_STATE newState = readMeterState(_hotState, HOT_THRESHOLD_HIGH,
     HOT_THRESHOLD_LOW, &readingValue);
 
-  if (CALIBRATION) {
+  if (ACTIVE_RUN_MODE == CALIBRATION) {
     _calibrationHotMin = min(_calibrationHotMin, readingValue);
     _calibrationHotMax = max(_calibrationHotMax, readingValue);
   }
 
-  if (newState != hotState) {
-    hotState = newState;
+  if (ACTIVE_RUN_MODE == PLOTTER) {
+    Serial.print(readingValue);
+    Serial.print(",");
+  }
+
+  if (newState != _hotState) {
+    _hotState = newState;
     return true;
   }
 
   return false;
 }
 
-METER_STATE takeReading(METER_STATE currentState, int highThreshold,
+/**
+ * Detect if the meter is showing the SHINY or DARK side
+ */
+METER_STATE readMeterState(METER_STATE currentState, int highThreshold,
   int lowThreshold, int*reading) {
   *reading = analogRead(PIN_ANALOG_IN);
-
-  if (PLOTTER) {
-    Serial.print(*reading);
-    Serial.print(",");
-  }
 
   if (currentState == REFLECT_HIGH && *reading < lowThreshold) {
     return REFLECT_LOW;
