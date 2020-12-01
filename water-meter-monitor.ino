@@ -1,9 +1,12 @@
 /**
- * Water meter monitor application.
- * 
- * Requires home_wifi.h to be present in Arduino libraries - imports Wifi hostname and password
+ * Copyright 2020 Jack Higgins : https://github.com/skhg
+ * All components of this project are licensed under the MIT License.
+ * See the LICENSE file for details.
  */
 
+/**
+ * Water meter monitor application.
+ */
 
 /**
  * User-configurable values start here:
@@ -113,7 +116,7 @@ const String HOST_NAME = "bathroom";
 #define PIN_DHT_SENSOR 12
 #define DHT_SENSOR_TYPE DHT22
 
-#include<ESP8266WiFi.h> 
+#include<ESP8266WiFi.h>
 #include<home_wifi.h>
 #include <DHT.h>
 #include <Wire.h>
@@ -140,7 +143,7 @@ enum METER_STATE {
   REFLECT_LOW
 };
 
-IPAddress server(IP_1,IP_2,IP_3,IP_4);
+IPAddress server(IP_1, IP_2, IP_3, IP_4);
 
 METER_STATE coldState_nvram;
 METER_STATE coldState;
@@ -159,13 +162,13 @@ void setup() {
   int coldStored = EEPROM.read(COLD_STATE_LOC);
   int hotStored = EEPROM.read(HOT_STATE_LOC);
 
-  if(coldStored > 1){
+  if (coldStored > 1) {
     coldStored = 0;
     EEPROM.write(COLD_STATE_LOC, 0);
     EEPROM.commit();
   }
 
-  if(hotStored > 1){
+  if (hotStored > 1) {
     hotStored = 0;
     EEPROM.write(HOT_STATE_LOC, 0);
     EEPROM.commit();
@@ -178,11 +181,11 @@ void setup() {
 
   Serial.println("Cold state: "+ String(coldStored));
   Serial.println("Hot state: "+ String(hotStored));
-  
+
   delay(STARTUP_DELAY_MS);
   dht.begin();
   bmp.begin();
-  
+
   pinMode(PIN_ANALOG_IN, INPUT);
 
   pinMode(PIN_MULTIPLEXER_S0, OUTPUT);
@@ -195,7 +198,7 @@ void setup() {
   digitalWrite(PIN_MULTIPLEXER_S2, LOW);
   digitalWrite(PIN_MULTIPLEXER_S3, LOW);
 
-  if(PLOTTER) {
+  if (PLOTTER) {
     Serial.println("Cold, Hot");
   }
 }
@@ -206,36 +209,40 @@ void loop() {
   bool coldFlow = COLD_ACTIVE && coldMoved();
   bool hotFlow = HOT_ACTIVE && hotMoved();
 
-  if(PLOTTER) {
+  if (PLOTTER) {
     Serial.println();
     return;
   }
-  
-  if(CALIBRATION) {
+
+  if (CALIBRATION) {
     calibrationHelper();
     Serial.println("---");
     return;
   }
-  
+
   double hotLitres = 0.0;
   double coldLitres = 0.0;
 
-  if(hotFlow){
+  if (hotFlow) {
     hotLitres = FLOW_DETECTION_LITRES;
   }
 
-  if(coldFlow){
+  if (coldFlow) {
     coldLitres = FLOW_DETECTION_LITRES;
   }
-  
+
   float humidity_percentage = dht.readHumidity();
   float dht_temperature_c = dht.readTemperature();
   float bmp_temperature_c = bmp.readTemperature();
   float pressure_pa = bmp.readPressure();
 
-  String json = "{\"waterFlow\":{\"hotLitres\":"+ String(hotLitres)+",\"coldLitres\":"+String(coldLitres)+"},\"environment\":{\"humidityPercentage\":"+humidity_percentage+",\"airPressurePa\":"+pressure_pa+",\"temperatureInternalC\":"+bmp_temperature_c+",\"temperatureExternalC\":"+dht_temperature_c+"}}";
+  String json = "{\"waterFlow\":{\"hotLitres\":" + String(hotLitres) +
+    ",\"coldLitres\":" + String(coldLitres) +
+    "},\"environment\":{\"humidityPercentage\":" + humidity_percentage +
+    ",\"airPressurePa\":" + pressure_pa + ",\"temperatureInternalC\":" +
+    bmp_temperature_c + ",\"temperatureExternalC\":" + dht_temperature_c + "}}";
 
-  if (client.connect(server, IP_PORT)) {      
+  if (client.connect(server, IP_PORT)) {
       // Make a HTTP request:
       client.println("POST /data/live HTTP/1.0");
       client.println("Content-Type: application/json");
@@ -245,7 +252,7 @@ void loop() {
       client.println(json);
       client.println();
       client.stop();
-    }else{
+    } else {
       Serial.println("ERROR: Failed to connect");
       reboot();
     }
@@ -253,22 +260,28 @@ void loop() {
     delay(LOOP_DELAY_MS);
 }
 
-void calibrationHelper(){
-  Serial.println("Cold: Range " + String(_calibrationColdMin) + " to " + String(_calibrationColdMax));
-  Serial.println("Hot: Range " + String(_calibrationHotMin) + " to " + String(_calibrationHotMax));
+void calibrationHelper() {
+  Serial.println("Cold: Range " + String(_calibrationColdMin) + " to " +
+  String(_calibrationColdMax));
+  Serial.println("Hot: Range " + String(_calibrationHotMin) + " to " +
+  String(_calibrationHotMax));
 
   int lowTrigger;
   int highTrigger;
   Serial.println("Reccomended trigger levels (20% above and below max/min)");
 
-  calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger, &highTrigger);
-  Serial.println("Cold: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+  calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger,
+    &highTrigger);
+  Serial.println("Cold: Low: " + String(lowTrigger) + " to High " +
+    String(highTrigger));
 
-  calculateThresholds(_calibrationHotMin, _calibrationHotMax, &lowTrigger, &highTrigger);
-  Serial.println("Hot: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+  calculateThresholds(_calibrationHotMin, _calibrationHotMax, &lowTrigger,
+    &highTrigger);
+  Serial.println("Hot: Low: " + String(lowTrigger) + " to High " +
+    String(highTrigger));
 }
 
-void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger){
+void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger) {
   int range = high - low;
 
   int rangeBuffer = range * 0.2;
@@ -276,56 +289,57 @@ void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger){
   *highTrigger = high - rangeBuffer;
 }
 
-void reboot(){
-  if(hotState != hotState_nvram){
-    EEPROM.write(HOT_STATE_LOC, int(hotState));
-    Serial.println("Storing hot state: " + String(int(hotState)));
+void reboot() {
+  if (hotState != hotState_nvram) {
+    EEPROM.write(HOT_STATE_LOC, static_cast<int>(hotState));
+    Serial.println("Storing hot state: " + String(static_cast<int>(hotState)));
     Serial.println("Stored hot state: " + String(EEPROM.read(HOT_STATE_LOC)));
   }
 
-  if(coldState != coldState_nvram){
-    EEPROM.write(COLD_STATE_LOC, int(coldState));
-    Serial.println("Storing cold state: " + String(int(coldState)));
+  if (coldState != coldState_nvram) {
+    EEPROM.write(COLD_STATE_LOC, static_cast<int>(coldState));
+    Serial.println("Storing cold state: " +
+      String(static_cast<int>(coldState)));
     Serial.println("Stored cold state: " + String(EEPROM.read(COLD_STATE_LOC)));
   }
   EEPROM.commit();
-  
+
   delay(REBOOT_DELAY_MS);
   Serial.println("Rebooting...");
   ESP.restart();
 }
 
-
-void connectToWifi(){
-  if(WiFi.status() == WL_CONNECTED){
-    return;  
+void connectToWifi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
   }
-  
+
   Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID); 
+  Serial.println(WIFI_SSID);
   WiFi.hostname(HOST_NAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     reboot();
   }
-  
+
   Serial.println("");
-  Serial.println("WiFi connected"); 
+  Serial.println("WiFi connected");
 }
 
-bool coldMoved(){
+bool coldMoved() {
   digitalWrite(PIN_MULTIPLEXER_S0, LOW);
   digitalWrite(PIN_MULTIPLEXER_S1, LOW);
 
   int readingValue;
-  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH, COLD_THRESHOLD_LOW, &readingValue);
+  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH,
+    COLD_THRESHOLD_LOW, &readingValue);
 
-  if(CALIBRATION){
+  if (CALIBRATION) {
     _calibrationColdMin = min(_calibrationColdMin, readingValue);
     _calibrationColdMax = max(_calibrationColdMax, readingValue);
   }
-  
-  if(newState != coldState){
+
+  if (newState != coldState) {
     coldState = newState;
     return true;
   }
@@ -333,19 +347,20 @@ bool coldMoved(){
   return false;
 }
 
-bool hotMoved(){
+bool hotMoved() {
   digitalWrite(PIN_MULTIPLEXER_S0, LOW);
   digitalWrite(PIN_MULTIPLEXER_S1, HIGH);
-  
-  int readingValue;
-  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH, HOT_THRESHOLD_LOW, &readingValue);
 
-  if(CALIBRATION){
+  int readingValue;
+  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH,
+    HOT_THRESHOLD_LOW, &readingValue);
+
+  if (CALIBRATION) {
     _calibrationHotMin = min(_calibrationHotMin, readingValue);
     _calibrationHotMax = max(_calibrationHotMax, readingValue);
   }
-  
-  if(newState != hotState){
+
+  if (newState != hotState) {
     hotState = newState;
     return true;
   }
@@ -353,17 +368,18 @@ bool hotMoved(){
   return false;
 }
 
-METER_STATE takeReading(METER_STATE currentState, int highThreshold, int lowThreshold, int*reading){
+METER_STATE takeReading(METER_STATE currentState, int highThreshold,
+  int lowThreshold, int*reading) {
   *reading = analogRead(PIN_ANALOG_IN);
 
-  if(PLOTTER) {
+  if (PLOTTER) {
     Serial.print(*reading);
     Serial.print(",");
   }
-  
-  if(currentState == REFLECT_HIGH && *reading < lowThreshold){
+
+  if (currentState == REFLECT_HIGH && *reading < lowThreshold) {
     return REFLECT_LOW;
-  }else if(currentState == REFLECT_LOW && *reading >  highThreshold){
+  } else if (currentState == REFLECT_LOW && *reading >  highThreshold) {
     return REFLECT_HIGH;
   }
 
