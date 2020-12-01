@@ -6,8 +6,6 @@
 
 /**
  * Water meter monitor application.
- * 
- * Requires home_wifi.h to be present in Arduino libraries - imports Wifi hostname and password
  */
 
 /**
@@ -238,7 +236,11 @@ void loop() {
   float bmp_temperature_c = bmp.readTemperature();
   float pressure_pa = bmp.readPressure();
 
-  String json = "{\"waterFlow\":{\"hotLitres\":"+ String(hotLitres)+",\"coldLitres\":"+String(coldLitres)+"},\"environment\":{\"humidityPercentage\":"+humidity_percentage+",\"airPressurePa\":"+pressure_pa+",\"temperatureInternalC\":"+bmp_temperature_c+",\"temperatureExternalC\":"+dht_temperature_c+"}}";
+  String json = "{\"waterFlow\":{\"hotLitres\":" + String(hotLitres) +
+    ",\"coldLitres\":" + String(coldLitres) +
+    "},\"environment\":{\"humidityPercentage\":" + humidity_percentage +
+    ",\"airPressurePa\":" + pressure_pa + ",\"temperatureInternalC\":" +
+    bmp_temperature_c + ",\"temperatureExternalC\":" + dht_temperature_c + "}}";
 
   if (client.connect(server, IP_PORT)) {
       // Make a HTTP request:
@@ -259,18 +261,24 @@ void loop() {
 }
 
 void calibrationHelper() {
-  Serial.println("Cold: Range " + String(_calibrationColdMin) + " to " + String(_calibrationColdMax));
-  Serial.println("Hot: Range " + String(_calibrationHotMin) + " to " + String(_calibrationHotMax));
+  Serial.println("Cold: Range " + String(_calibrationColdMin) + " to " +
+  String(_calibrationColdMax));
+  Serial.println("Hot: Range " + String(_calibrationHotMin) + " to " +
+  String(_calibrationHotMax));
 
   int lowTrigger;
   int highTrigger;
   Serial.println("Reccomended trigger levels (20% above and below max/min)");
 
-  calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger, &highTrigger);
-  Serial.println("Cold: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+  calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger,
+    &highTrigger);
+  Serial.println("Cold: Low: " + String(lowTrigger) + " to High " +
+    String(highTrigger));
 
-  calculateThresholds(_calibrationHotMin, _calibrationHotMax, &lowTrigger, &highTrigger);
-  Serial.println("Hot: Low: " + String(lowTrigger) + " to High " + String(highTrigger));
+  calculateThresholds(_calibrationHotMin, _calibrationHotMax, &lowTrigger,
+    &highTrigger);
+  Serial.println("Hot: Low: " + String(lowTrigger) + " to High " +
+    String(highTrigger));
 }
 
 void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger) {
@@ -283,14 +291,15 @@ void calculateThresholds(int low, int high, int*lowTrigger, int*highTrigger) {
 
 void reboot() {
   if (hotState != hotState_nvram) {
-    EEPROM.write(HOT_STATE_LOC, int(hotState));
-    Serial.println("Storing hot state: " + String(int(hotState)));
+    EEPROM.write(HOT_STATE_LOC, static_cast<int>(hotState));
+    Serial.println("Storing hot state: " + String(static_cast<int>(hotState)));
     Serial.println("Stored hot state: " + String(EEPROM.read(HOT_STATE_LOC)));
   }
 
   if (coldState != coldState_nvram) {
-    EEPROM.write(COLD_STATE_LOC, int(coldState));
-    Serial.println("Storing cold state: " + String(int(coldState)));
+    EEPROM.write(COLD_STATE_LOC, static_cast<int>(coldState));
+    Serial.println("Storing cold state: " +
+      String(static_cast<int>(coldState)));
     Serial.println("Stored cold state: " + String(EEPROM.read(COLD_STATE_LOC)));
   }
   EEPROM.commit();
@@ -322,7 +331,8 @@ bool coldMoved() {
   digitalWrite(PIN_MULTIPLEXER_S1, LOW);
 
   int readingValue;
-  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH, COLD_THRESHOLD_LOW, &readingValue);
+  METER_STATE newState = takeReading(coldState, COLD_THRESHOLD_HIGH,
+    COLD_THRESHOLD_LOW, &readingValue);
 
   if (CALIBRATION) {
     _calibrationColdMin = min(_calibrationColdMin, readingValue);
@@ -342,7 +352,8 @@ bool hotMoved() {
   digitalWrite(PIN_MULTIPLEXER_S1, HIGH);
 
   int readingValue;
-  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH, HOT_THRESHOLD_LOW, &readingValue);
+  METER_STATE newState = takeReading(hotState, HOT_THRESHOLD_HIGH,
+    HOT_THRESHOLD_LOW, &readingValue);
 
   if (CALIBRATION) {
     _calibrationHotMin = min(_calibrationHotMin, readingValue);
@@ -357,7 +368,8 @@ bool hotMoved() {
   return false;
 }
 
-METER_STATE takeReading(METER_STATE currentState, int highThreshold, int lowThreshold, int*reading) {
+METER_STATE takeReading(METER_STATE currentState, int highThreshold,
+  int lowThreshold, int*reading) {
   *reading = analogRead(PIN_ANALOG_IN);
 
   if (PLOTTER) {
