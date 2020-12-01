@@ -236,11 +236,12 @@ void loop() {
   float bmp_temperature_c = _bmp.readTemperature();
   float pressure_pa = _bmp.readPressure();
 
-  String json = sensorValuesToJsonString(_hotLitres, _coldLitres, humidity_percentage, pressure_pa, bmp_temperature_c, dht_temperature_c);
+  String json = sensorValuesToJsonString(_hotLitres, _coldLitres,
+    humidity_percentage, pressure_pa, bmp_temperature_c, dht_temperature_c);
 
   if (hotFlow || coldFlow || timeForReport(_lastReportMillis)) {
     _lastReportMillis = millis();
-    
+
     if (sendReadings(json)) {
       // Reset the accumulated litres if we sent them
       _coldLitres = 0.0;
@@ -296,12 +297,12 @@ String meterStateToString(METER_STATE state) {
   }
 }
 
-boolean sendReadings(String jsonString) {
+boolean sendReadings(String json) {
   HTTP_CLIENT.begin(WIFI_CLIENT, String(SERVER_ADDRESS) + String(URL_PATH));
 
   HTTP_CLIENT.addHeader(HTTP_CONTENT_TYPE_HEADER, HTTP_JSON_CONTENT_TYPE);
-  HTTP_CLIENT.addHeader(HTTP_CONTENT_LENGTH_HEADER, String(jsonString.length()));
-  int result = HTTP_CLIENT.POST(jsonString);
+  HTTP_CLIENT.addHeader(HTTP_CONTENT_LENGTH_HEADER, String(json.length()));
+  int result = HTTP_CLIENT.POST(json);
 
   if (200 <= result && result < 300) {
     Serial.print("Succeeded with response code: ");
@@ -314,7 +315,9 @@ boolean sendReadings(String jsonString) {
   }
 }
 
-String sensorValuesToJsonString(double hotLitres, double coldLitres, float humidityPercentage, float pressurePa, float internalTemp, float externalTemp) {
+String sensorValuesToJsonString(double hotLitres, double coldLitres,
+  float humidityPercentage, float pressurePa, float internalTemp,
+  float externalTemp) {
   String content;
 
   const size_t capacity = 2*JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4);
@@ -343,7 +346,7 @@ void calibrationHelper() {
 
   int lowTrigger;
   int highTrigger;
-  Serial.println("Reccomended trigger levels (20% above and below max/min)");
+  Serial.println("Recommended trigger levels (20% above and below max/min)");
 
   calculateThresholds(_calibrationColdMin, _calibrationColdMax, &lowTrigger,
     &highTrigger);
