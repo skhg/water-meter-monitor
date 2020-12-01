@@ -33,7 +33,7 @@
 /**
  * When no water is flowing, how often do we report the "weather conditions" in the bathroom
  */
-#define REPORT_INTERVAL_SECONDS 10
+#define REPORT_INTERVAL_SECONDS 300
 
 /**
  * Quantity of water represented by one-half rotation of the meter's wheel
