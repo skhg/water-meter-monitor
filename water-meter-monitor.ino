@@ -20,15 +20,15 @@
  * Cold water sensor - reflectance threshold values. Estimated from CALIBRATION mode
  */
 #define COLD_ACTIVE true
-#define COLD_THRESHOLD_HIGH 982
-#define COLD_THRESHOLD_LOW 852
+#define COLD_THRESHOLD_HIGH 980
+#define COLD_THRESHOLD_LOW 864
 
 /**
  * Hot water sensor - reflectance threshold values. Estimated from CALIBRATION mode
  */
 #define HOT_ACTIVE true
-#define HOT_THRESHOLD_HIGH 56
-#define HOT_THRESHOLD_LOW 44
+#define HOT_THRESHOLD_HIGH 52
+#define HOT_THRESHOLD_LOW 43
 
 /**
  * When no water is flowing, how often do we report the "weather conditions" in the bathroom
